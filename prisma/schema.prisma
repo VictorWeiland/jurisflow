@@ -1,0 +1,762 @@
+// ==============================================================================
+// JurisFlow — Prisma Database Schema
+// Triforce System | SaaS Jurídico Multi-Tenant
+// ==============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ------------------------------------------------------------------------------
+// TABELAS GLOBAIS (Sem Tenant)
+// ------------------------------------------------------------------------------
+
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique @db.VarChar(50) // owner, admin, lawyer, assistant, financial, viewer
+  displayName String   @map("display_name") @db.VarChar(100)
+  description String?  @db.Text
+  isSystem    Boolean  @default(true) @map("is_system")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  rolePermissions     RolePermission[]
+  organizationMembers OrganizationMember[]
+  invitations         Invitation[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String   @id @default(uuid()) @db.Uuid
+  resource    String   @db.VarChar(50) // clients, cases, deadlines, tasks, documents, finance, reports, team, settings, privacy
+  action      String   @db.VarChar(50) // read, create, edit, archive, export, admin, confidential_read, fulfill, reconcile
+  description String?  @db.Text
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  rolePermissions RolePermission[]
+
+  @@unique([resource, action])
+  @@map("permissions")
+}
+
+model RolePermission {
+  id           String   @id @default(uuid()) @db.Uuid
+  roleId       String   @map("role_id") @db.Uuid
+  permissionId String   @map("permission_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model SubscriptionPlan {
+  id             String   @id @default(uuid()) @db.Uuid
+  name           String   @db.VarChar(100)
+  code           String   @unique @db.VarChar(50) // essential, professional, enterprise
+  description    String?  @db.Text
+  priceCents     Int      @map("price_cents") // Preço em centavos (BRL)
+  billingCycle   String   @default("monthly") @map("billing_cycle") @db.VarChar(20) // monthly, yearly
+  maxUsers       Int      @default(3) @map("max_users")
+  maxStorageMb   Int      @default(5120) @map("max_storage_mb") // 5 GB default
+  maxCases       Int      @default(500) @map("max_cases")
+  features       Json     @default("{}") // Flags de recursos
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  subscriptions Subscription[]
+
+  @@map("subscription_plans")
+}
+
+model Subprocessor {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @db.VarChar(100)
+  purpose     String   @db.VarChar(200) // Ex.: Hospedagem, Banco de Dados, Storage, Auth
+  dataTypes   String   @map("data_types") @db.Text
+  country     String   @db.VarChar(100)
+  privacyUrl  String   @map("privacy_url") @db.VarChar(500)
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("subprocessors")
+}
+
+// ------------------------------------------------------------------------------
+// TABELAS DE TENANT (organization_id NOT NULL)
+// ------------------------------------------------------------------------------
+
+model Organization {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @db.VarChar(200)
+  slug        String   @unique @db.VarChar(100)
+  tradeName   String?  @map("trade_name") @db.VarChar(200)
+  cnpj        String?  @db.VarChar(20)
+  oabNumber   String?  @map("oab_number") @db.VarChar(30)
+  oabState    String?  @map("oab_state") @db.VarChar(2)
+  phone       String?  @db.VarChar(30)
+  email       String?  @db.VarChar(255)
+  timezone    String   @default("America/Sao_Paulo") @db.VarChar(50)
+  dpoName     String?  @map("dpo_name") @db.VarChar(200)
+  dpoEmail    String?  @map("dpo_email") @db.VarChar(255)
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  members              OrganizationMember[]
+  invitations          Invitation[]
+  auditLogs            AuditLog[]
+  subscriptions        Subscription[]
+  settings             OrganizationSetting[]
+  consentRecords       ConsentRecord[]
+  processingActivities ProcessingActivity[]
+  dataSubjectRequests  DataSubjectRequest[]
+  retentionPolicies    RetentionPolicy[]
+  securityIncidents    SecurityIncident[]
+  clients              Client[]
+  legalCases           LegalCase[]
+  deadlines            Deadline[]
+  hearings             Hearing[]
+  tasks                Task[]
+  documents            Document[]
+  contracts            Contract[]
+  transactions         FinancialTransaction[]
+  categories           Category[]
+  holidays             Holiday[]
+  notifications        Notification[]
+
+  @@map("organizations")
+}
+
+model Profile {
+  id             String   @id @db.Uuid // Mapeado diretamente para auth.users.id
+  email          String   @unique @db.VarChar(255)
+  fullName       String   @map("full_name") @db.VarChar(200)
+  avatarUrl      String?  @map("avatar_url") @db.VarChar(500)
+  phone          String?  @db.VarChar(30)
+  oabNumber      String?  @map("oab_number") @db.VarChar(30)
+  oabState       String?  @map("oab_state") @db.VarChar(2)
+  isSuperadmin   Boolean  @default(false) @map("is_superadmin")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  memberships             OrganizationMember[]
+  termsAcceptances        TermsAcceptance[]
+  notifications           Notification[]
+  notificationPreferences NotificationPreference[]
+
+  @@map("profiles")
+}
+
+model OrganizationMember {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  userId         String    @map("user_id") @db.Uuid
+  roleId         String    @map("role_id") @db.Uuid
+  isActive       Boolean   @default(true) @map("is_active")
+  joinedAt       DateTime  @default(now()) @map("joined_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  profile      Profile      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role         Role         @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, userId])
+  @@unique([organizationId, id])
+  @@index([organizationId])
+  @@index([userId])
+  @@map("organization_members")
+}
+
+model Invitation {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  email          String    @db.VarChar(255)
+  roleId         String    @map("role_id") @db.Uuid
+  tokenHash      String    @unique @map("token_hash") @db.VarChar(128)
+  expiresAt      DateTime  @map("expires_at") @db.Timestamptz(6)
+  acceptedAt     DateTime? @map("accepted_at") @db.Timestamptz(6)
+  invitedBy      String    @map("invited_by") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  role         Role         @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId])
+  @@index([tokenHash])
+  @@map("invitations")
+}
+
+model AuditLog {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  userId         String?  @map("user_id") @db.Uuid
+  action         String   @db.VarChar(50) // create, update, archive, delete, export, login, access_confidential
+  entity         String   @db.VarChar(50) // client, case, document, finance, member, lgpd_request
+  entityId       String?  @map("entity_id") @db.VarChar(100)
+  diff           Json?    // Diferença mínima estruturada: { field: { old, new } }
+  ipAddress      String?  @map("ip_address") @db.VarChar(45)
+  userAgent      String?  @map("user_agent") @db.Text
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, entity, entityId])
+  @@map("audit_logs")
+}
+
+model Subscription {
+  id                 String    @id @default(uuid()) @db.Uuid
+  organizationId     String    @map("organization_id") @db.Uuid
+  planId             String    @map("plan_id") @db.Uuid
+  status             String    @default("trial") @db.VarChar(30) // trial, active, past_due, canceled
+  currentPeriodStart DateTime  @default(now()) @map("current_period_start") @db.Timestamptz(6)
+  currentPeriodEnd   DateTime  @map("current_period_end") @db.Timestamptz(6)
+  cancelAtPeriodEnd  Boolean   @default(false) @map("cancel_at_period_end")
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  plan         SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, id])
+  @@index([organizationId])
+  @@map("subscriptions")
+}
+
+model OrganizationSetting {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  key            String   @db.VarChar(100)
+  value          Json
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, key])
+  @@index([organizationId])
+  @@map("organization_settings")
+}
+
+// ------------------------------------------------------------------------------
+// PRIVACIDADE & LGPD (Seção 9.1)
+// ------------------------------------------------------------------------------
+
+model ConsentRecord {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  userId         String?   @map("user_id") @db.Uuid
+  category       String    @db.VarChar(50) // analytics, marketing, essential
+  consentGiven   Boolean   @map("consent_given")
+  version        String    @db.VarChar(20)
+  ipAddress      String?   @map("ip_address") @db.VarChar(45) // IP truncado
+  userAgent      String?   @map("user_agent") @db.Text
+  revokedAt      DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, userId])
+  @@map("consent_records")
+}
+
+model TermsAcceptance {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @map("user_id") @db.Uuid
+  documentType    String   @map("document_type") @db.VarChar(50) // terms_of_use, privacy_policy
+  documentVersion String   @map("document_version") @db.VarChar(20)
+  ipAddress       String?  @map("ip_address") @db.VarChar(45)
+  userAgent       String?  @map("user_agent") @db.Text
+  acceptedAt      DateTime @default(now()) @map("accepted_at") @db.Timestamptz(6)
+
+  profile Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, documentType])
+  @@map("terms_acceptances")
+}
+
+model ProcessingActivity {
+  id               String   @id @default(uuid()) @db.Uuid
+  organizationId   String   @map("organization_id") @db.Uuid
+  name             String   @db.VarChar(150) // Ex.: Gestão de Clientes e Partes
+  purpose          String   @db.Text
+  dataCategories   String   @map("data_categories") @db.Text // Identificação, Contato, Financeiro, Sensíveis
+  legalBasis       String   @map("legal_basis") @db.VarChar(100) // art_7_v_contrato, art_7_vi_processo_judicial
+  retentionPeriod  String   @map("retention_period") @db.VarChar(100)
+  securityMeasures String   @map("security_measures") @db.Text
+  dpoReviewed      Boolean  @default(false) @map("dpo_reviewed")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("processing_activities")
+}
+
+model DataSubjectRequest {
+  id                String    @id @default(uuid()) @db.Uuid
+  organizationId    String    @map("organization_id") @db.Uuid
+  requesterName     String    @map("requester_name") @db.VarChar(200)
+  requesterEmail    String    @map("requester_email") @db.VarChar(255)
+  requesterDocument String    @map("requester_document") @db.VarChar(30)
+  requestType       String    @map("request_type") @db.VarChar(50) // confirmation, access, correction, anonymization, portability, revocation
+  status            String    @default("received") @db.VarChar(30) // received, identity_verified, analyzing, completed, rejected
+  responseDeadline  DateTime  @map("response_deadline") @db.Date
+  internalNotes     String?   @map("internal_notes") @db.Text
+  identityVerified  Boolean   @default(false) @map("identity_verified")
+  resolvedAt        DateTime? @map("resolved_at") @db.Timestamptz(6)
+  resolvedBy        String?   @map("resolved_by") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status])
+  @@map("data_subject_requests")
+}
+
+model RetentionPolicy {
+  id                    String   @id @default(uuid()) @db.Uuid
+  organizationId        String   @map("organization_id") @db.Uuid
+  entityType            String   @map("entity_type") @db.VarChar(50) // inactive_clients, archived_cases, audit_logs
+  retentionMonths       Int      @map("retention_months")
+  legalBasis            String   @map("legal_basis") @db.VarChar(100)
+  requiresHumanApproval Boolean  @default(true) @map("requires_human_approval")
+  isActive              Boolean  @default(true) @map("is_active")
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, entityType])
+  @@index([organizationId])
+  @@map("retention_policies")
+}
+
+model SecurityIncident {
+  id                    String    @id @default(uuid()) @db.Uuid
+  organizationId        String    @map("organization_id") @db.Uuid
+  detectedAt            DateTime  @map("detected_at") @db.Timestamptz(6)
+  severity              String    @db.VarChar(30) // low, medium, high, critical
+  description           String    @db.Text
+  affectedRecordsCount  Int?      @map("affected_records_count")
+  containmentActions    String    @map("containment_actions") @db.Text
+  reportedToAuthorities Boolean   @default(false) @map("reported_to_authorities")
+  status                String    @default("investigating") @db.VarChar(30) // investigating, contained, resolved
+  resolvedAt            DateTime? @map("resolved_at") @db.Timestamptz(6)
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("security_incidents")
+}
+
+// ------------------------------------------------------------------------------
+// OPERAÇÃO JURÍDICA (Clientes, Processos, Prazos, Tarefas, Documentos, Financeiro)
+// ------------------------------------------------------------------------------
+
+model Client {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  personType     String    @default("individual") @map("person_type") @db.VarChar(20) // individual (PF), legal_entity (PJ)
+  name           String    @db.VarChar(200)
+  documentNumber String    @map("document_number") @db.VarChar(30) // CPF ou CNPJ (inclui CNPJ alfanumérico)
+  email          String?   @db.VarChar(255)
+  phone          String?   @db.VarChar(30)
+  altPhone       String?   @map("alt_phone") @db.VarChar(30)
+  address        Json?     // { street, number, complement, neighborhood, city, state, zip }
+  notes          String?   @db.Text
+  isActive       Boolean   @default(true) @map("is_active")
+  isArchived     Boolean   @default(false) @map("is_archived")
+  archivedAt     DateTime? @map("archived_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  legalCases   LegalCase[]
+  contracts    Contract[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, documentNumber])
+  @@index([organizationId, isActive, isArchived])
+  @@map("clients")
+}
+
+model LegalCase {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  clientId       String    @map("client_id") @db.Uuid
+  cnjNumber      String?   @map("cnj_number") @db.VarChar(30) // Módulo 97 Resolução CNJ 65/2008
+  title          String    @db.VarChar(250)
+  adverseParty   String?   @map("adverse_party") @db.VarChar(200)
+  court          String?   @db.VarChar(100)
+  judicialBranch String?   @map("judicial_branch") @db.VarChar(100) // Vara / Comarca
+  area           String    @db.VarChar(50) // civel, trabalhista, tributario, penal, etc.
+  actionType     String?   @map("action_type") @db.VarChar(100)
+  responsibleId  String?   @map("responsible_id") @db.Uuid
+  distributionDate DateTime? @map("distribution_date") @db.Date
+  caseValueCents BigInt?   @map("case_value_cents") // Valor da causa em centavos
+  status         String    @default("active") @db.VarChar(30) // active, suspended, archived, closed
+  phase          String?   @db.VarChar(50)
+  isConfidential Boolean   @default(false) @map("is_confidential")
+  internalRef    String?   @map("internal_ref") @db.VarChar(50)
+  notes          String?   @db.Text
+  archivedAt     DateTime? @map("archived_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  client       Client       @relation(fields: [organizationId, clientId], references: [organizationId, id], onDelete: Restrict)
+
+  parties      CaseParty[]
+  events       CaseEvent[]
+  deadlines    Deadline[]
+  hearings     Hearing[]
+  tasks        Task[]
+  documents    Document[]
+  contracts    Contract[]
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, cnjNumber])
+  @@index([organizationId, status])
+  @@index([organizationId, responsibleId])
+  @@map("legal_cases")
+}
+
+model CaseParty {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  caseId         String   @map("case_id") @db.Uuid
+  name           String   @db.VarChar(200)
+  partyType      String   @map("party_type") @db.VarChar(50) // plaintiff, defendant, third_party, witness
+  documentNumber String?  @map("document_number") @db.VarChar(30)
+  lawyerName     String?  @map("lawyer_name") @db.VarChar(200)
+  notes          String?  @db.Text
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  legalCase LegalCase @relation(fields: [organizationId, caseId], references: [organizationId, id], onDelete: Cascade)
+
+  @@unique([organizationId, id])
+  @@index([organizationId, caseId])
+  @@map("case_parties")
+}
+
+model CaseEvent {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  caseId         String   @map("case_id") @db.Uuid
+  title          String   @db.VarChar(200)
+  description    String   @db.Text
+  eventDate      DateTime @map("event_date") @db.Timestamptz(6)
+  createdBy      String   @map("created_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  legalCase LegalCase @relation(fields: [organizationId, caseId], references: [organizationId, id], onDelete: Cascade)
+
+  @@unique([organizationId, id])
+  @@index([organizationId, caseId, eventDate])
+  @@map("case_events")
+}
+
+model Deadline {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  caseId         String?   @map("case_id") @db.Uuid
+  title          String    @db.VarChar(200)
+  description    String?   @db.Text
+  dueDate        DateTime  @map("due_date") @db.Date // Data do prazo
+  dueTime        String?   @map("due_time") @db.VarChar(10) // HH:mm opcional
+  calculationType String   @default("informative") @map("calculation_type") @db.VarChar(30) // informative, calculated
+  calculationLog Json?     @map("calculation_log") // Passo a passo do assistente
+  responsibleId  String?   @map("responsible_id") @db.Uuid
+  priority       String    @default("medium") @db.VarChar(20) // low, medium, high, urgent
+  status         String    @default("pending") @db.VarChar(30) // pending, completed, missed
+  completedAt    DateTime? @map("completed_at") @db.Timestamptz(6)
+  completedBy    String?   @map("completed_by") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  legalCase    LegalCase?   @relation(fields: [organizationId, caseId], references: [organizationId, id], onDelete: Cascade)
+
+  @@unique([organizationId, id])
+  @@index([organizationId, dueDate, status])
+  @@index([organizationId, responsibleId])
+  @@map("deadlines")
+}
+
+model Hearing {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  caseId         String?   @map("case_id") @db.Uuid
+  title          String    @db.VarChar(200)
+  hearingDate    DateTime  @map("hearing_date") @db.Timestamptz(6)
+  location       String?   @db.VarChar(255) // Presencial ou Link Virtual
+  hearingType    String    @default("conciliation") @map("hearing_type") @db.VarChar(50) // conciliation, instruction, judgment
+  responsibleId  String?   @map("responsible_id") @db.Uuid
+  notes          String?   @db.Text
+  status         String    @default("scheduled") @db.VarChar(30) // scheduled, completed, canceled, rescheduled
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  legalCase    LegalCase?   @relation(fields: [organizationId, caseId], references: [organizationId, id], onDelete: Cascade)
+
+  @@unique([organizationId, id])
+  @@index([organizationId, hearingDate])
+  @@map("hearings")
+}
+
+model Task {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  caseId         String?   @map("case_id") @db.Uuid
+  title          String    @db.VarChar(200)
+  description    String?   @db.Text
+  responsibleId  String?   @map("responsible_id") @db.Uuid
+  dueDate        DateTime? @map("due_date") @db.Date
+  priority       String    @default("medium") @db.VarChar(20) // low, medium, high
+  status         String    @default("todo") @db.VarChar(30) // todo, in_progress, review, done
+  position       Int       @default(0) // Posição para Kanban
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  legalCase    LegalCase?    @relation(fields: [organizationId, caseId], references: [organizationId, id], onDelete: Cascade)
+  comments     TaskComment[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, status, position])
+  @@map("tasks")
+}
+
+model TaskComment {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  taskId         String   @map("task_id") @db.Uuid
+  authorId       String   @map("author_id") @db.Uuid
+  content        String   @db.Text
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  task Task @relation(fields: [organizationId, taskId], references: [organizationId, id], onDelete: Cascade)
+
+  @@unique([organizationId, id])
+  @@index([organizationId, taskId])
+  @@map("task_comments")
+}
+
+model Document {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  caseId         String?   @map("case_id") @db.Uuid
+  title          String    @db.VarChar(200)
+  category       String    @default("petition") @db.VarChar(50) // petition, evidence, contract, power_of_attorney
+  description    String?   @db.Text
+  storagePath    String    @map("storage_path") @db.VarChar(500)
+  fileName       String    @map("file_name") @db.VarChar(255)
+  fileSize       Int       @map("file_size") // Em bytes
+  mimeType       String    @map("mime_type") @db.VarChar(100)
+  fileHash       String    @map("file_hash") @db.VarChar(64) // SHA-256
+  isConfidential Boolean   @default(false) @map("is_confidential")
+  uploadedBy     String    @map("uploaded_by") @db.Uuid
+  isArchived     Boolean   @default(false) @map("is_archived")
+  archivedAt     DateTime? @map("archived_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  legalCase    LegalCase?           @relation(fields: [organizationId, caseId], references: [organizationId, id], onDelete: Cascade)
+  versions     DocumentVersion[]
+  accessLogs   DocumentAccessLog[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, caseId])
+  @@index([organizationId, isConfidential])
+  @@map("documents")
+}
+
+model DocumentVersion {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  documentId     String   @map("document_id") @db.Uuid
+  versionNumber  Int      @map("version_number")
+  storagePath    String   @map("storage_path") @db.VarChar(500)
+  fileSize       Int      @map("file_size")
+  fileHash       String   @map("file_hash") @db.VarChar(64)
+  uploadedBy     String   @map("uploaded_by") @db.Uuid
+  changeNotes    String?  @map("change_notes") @db.Text
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  document Document @relation(fields: [organizationId, documentId], references: [organizationId, id], onDelete: Cascade)
+
+  @@unique([organizationId, documentId, versionNumber])
+  @@unique([organizationId, id])
+  @@map("document_versions")
+}
+
+model DocumentAccessLog {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  documentId     String   @map("document_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  accessType     String   @map("access_type") @db.VarChar(30) // view, download
+  ipAddress      String?  @map("ip_address") @db.VarChar(45)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  document Document @relation(fields: [organizationId, documentId], references: [organizationId, id], onDelete: Cascade)
+
+  @@unique([organizationId, id])
+  @@index([organizationId, documentId, createdAt])
+  @@map("document_access_logs")
+}
+
+model Contract {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  clientId       String    @map("client_id") @db.Uuid
+  caseId         String?   @map("case_id") @db.Uuid
+  title          String    @db.VarChar(200)
+  totalAmountCents BigInt  @map("total_amount_cents") // Valor total em centavos
+  feeType        String    @default("fixed") @map("fee_type") @db.VarChar(30) // fixed, contingency, hourly, retainer
+  installmentsCount Int    @default(1) @map("installments_count")
+  signedAt       DateTime? @map("signed_at") @db.Date
+  status         String    @default("active") @db.VarChar(30) // draft, active, fulfilled, canceled
+  notes          String?   @db.Text
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  client       Client                 @relation(fields: [organizationId, clientId], references: [organizationId, id], onDelete: Restrict)
+  legalCase    LegalCase?             @relation(fields: [organizationId, caseId], references: [organizationId, id], onDelete: Cascade)
+  transactions FinancialTransaction[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, clientId])
+  @@map("contracts")
+}
+
+model FinancialTransaction {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  contractId     String?   @map("contract_id") @db.Uuid
+  type           String    @db.VarChar(20) // income (receita), expense (despesa)
+  title          String    @db.VarChar(200)
+  amountCents    BigInt    @map("amount_cents") // Valor total previsto em centavos
+  paidAmountCents BigInt   @default(0) @map("paid_amount_cents") // Total amortizado
+  dueDate        DateTime  @map("due_date") @db.Date
+  categoryId     String?   @map("category_id") @db.Uuid
+  notes          String?   @db.Text
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  contract     Contract?       @relation(fields: [organizationId, contractId], references: [organizationId, id], onDelete: Cascade)
+  category     Category?       @relation(fields: [organizationId, categoryId], references: [organizationId, id], onDelete: Restrict)
+  payments     PaymentRecord[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, dueDate, type])
+  @@map("financial_transactions")
+}
+
+model PaymentRecord {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  transactionId  String   @map("transaction_id") @db.Uuid
+  amountCents    BigInt   @map("amount_cents") // Valor pago nesta quitação
+  paymentDate    DateTime @map("payment_date") @db.Date
+  paymentMethod  String   @default("pix") @map("payment_method") @db.VarChar(30) // pix, boleto, credit_card, bank_transfer
+  receivedBy     String   @map("received_by") @db.Uuid
+  receiptUrl     String?  @map("receipt_url") @db.VarChar(500)
+  notes          String?  @db.Text
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  transaction FinancialTransaction @relation(fields: [organizationId, transactionId], references: [organizationId, id], onDelete: Cascade)
+
+  @@unique([organizationId, id])
+  @@index([organizationId, transactionId])
+  @@map("payment_records")
+}
+
+model Category {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  name           String   @db.VarChar(100)
+  type           String   @db.VarChar(20) // income, expense
+  isSystem       Boolean  @default(false) @map("is_system")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  transactions FinancialTransaction[]
+
+  @@unique([organizationId, name, type])
+  @@unique([organizationId, id])
+  @@map("categories")
+}
+
+model Holiday {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  date           DateTime @db.Date
+  name           String   @db.VarChar(150)
+  court          String?  @db.VarChar(100) // Se for suspensão específica de um tribunal
+  isForensic     Boolean  @default(true) @map("is_forensic") // Suspensão forense
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, date, court])
+  @@unique([organizationId, id])
+  @@map("holidays")
+}
+
+model Notification {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  userId         String    @map("user_id") @db.Uuid
+  title          String    @db.VarChar(200)
+  message        String    @db.Text
+  category       String    @db.VarChar(50) // deadline, hearing, task, finance, system
+  link           String?   @db.VarChar(500)
+  isRead         Boolean   @default(false) @map("is_read")
+  readAt         DateTime? @map("read_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  profile      Profile      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, id])
+  @@index([organizationId, userId, isRead])
+  @@map("notifications")
+}
+
+model NotificationPreference {
+  id                  String   @id @default(uuid()) @db.Uuid
+  userId              String   @map("user_id") @db.Uuid
+  category            String   @db.VarChar(50)
+  inAppEnabled        Boolean  @default(true) @map("in_app_enabled")
+  emailEnabled        Boolean  @default(false) @map("email_enabled")
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  profile Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, category])
+  @@map("notification_preferences")
+}
