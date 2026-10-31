@@ -1,6 +1,6 @@
 import "server-only";
 import { cookies } from "next/headers";
-import { PrismaClient } from "@prisma/client";
+import type { PrismaClient } from "@prisma/client";
 import { brand } from "@/config/brand";
 import { resolveSession } from "@/lib/auth/session";
 import { ForbiddenOrgAccessError, OrgRequiredError } from "@/lib/auth/errors";
@@ -11,14 +11,31 @@ import { ForbiddenOrgAccessError, OrgRequiredError } from "@/lib/auth/errors";
  */
 export const ORG_COOKIE_NAME = `${brand.slug}_org_id`;
 
+// Símbolo unicamente local para garantir que OrgContext seja um Branded Type nominal
+declare const OrgContextBrand: unique symbol;
+
 /**
- * Interface tipada do contexto de tenant autenticado e validado.
+ * Interface tipada e blindada (Branded Type) do contexto de tenant autenticado e validado.
+ *
+ * REGRA DE SEGURANÇA:
+ * O tipo nominal impede que qualquer módulo fora de src/lib/auth crie ou forje
+ * instâncias literais de OrgContext.
  */
-export interface OrgContext {
+export type OrgContext = {
+  readonly [OrgContextBrand]: true;
+  readonly userId: string;
+  readonly orgId: string;
+  readonly roleId: string;
+  readonly roleName: string;
+};
+
+function createOrgContext(payload: {
   userId: string;
   orgId: string;
   roleId: string;
   roleName: string;
+}): OrgContext {
+  return payload as unknown as OrgContext;
 }
 
 /**
@@ -85,12 +102,12 @@ export async function resolveOrgContext(
       );
     }
 
-    return {
+    return createOrgContext({
       userId,
       orgId: normalizedOrgId,
       roleId: member.roleId,
       roleName: member.role.name,
-    };
+    });
   });
 }
 

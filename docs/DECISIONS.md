@@ -91,3 +91,26 @@
     - **Roteiro Manual Cloud (Cenário d1):** Requisição com cookie contendo JWT com `exp` expirado -> Confirmação de 401 Unauthorized do GoTrue.
     - **Roteiro Manual Cloud (Cenário d2):** Requisição com cookie contendo JWT adulterado (assinatura inválida) -> Confirmação de 401 Unauthorized por falha de integridade.
 - **Alternativa Descartada:** Servidor mock de GoTrue local ou interceptores de `getUser()` (criaria fragilidade e falsa sensação de segurança divergente da nuvem).
+
+---
+
+### DEC-008: Cliente Prisma Singleton, Branded Type OrgContext e Sanitização Transacional de Pool
+
+- **Status:** Aprovado e Implementado
+- **Contexto:** Prevenir vazamento acidental de dados de tenant através do uso de clientes Prisma desprotegidos, vazamento de estado em conexões reutilizadas pelo pooler e forja de contextos de autenticação na aplicação.
+- **Decisão:**
+  1. **Singleton Encapsulado (`src/lib/db/prisma.ts`):**
+     - A instância crua `rawPrisma` é mantida privada ao módulo `src/lib/db/` e nunca é exportada.
+     - Aplicações com tenant utilizam obrigatoriamente a função `withTenantContext(context: OrgContext, fn)`.
+  2. **Isolamento Transacional com Parametrização Segura:**
+     - `withTenantContext` abre uma transação no PostgreSQL e executa `SELECT set_config('app.current_user_id', $1, true)` e `SELECT set_config('app.current_org_id', $2, true)` com parâmetros posicionais nativos.
+     - As variáveis são destruídas no encerramento da transação (`COMMIT`/`ROLLBACK`).
+  3. **Branded Type para `OrgContext`:**
+     - `OrgContext` é um tipo nominal (branded type) cujo símbolo privado reside unicamente em `src/lib/auth/context.ts`.
+     - Testes estáticos proíbem casts arbitrários (`as OrgContext`) ou importação do símbolo fora de `src/lib/auth/`.
+  4. **Varredura Estática de Arquitetura:**
+     - Testes automatizados proíbem `new PrismaClient` e imports em runtime de `@prisma/client` fora dos módulos autorizados.
+- **Limitações Registradas:**
+  - O Branded Type `OrgContext` atua na camada estática de tipos do TypeScript para impedir erros de compilação e forja acidental em código; ele é eliminado na transpilação para JavaScript. A segurança final em runtime é garantida pelo motor PostgreSQL RLS com `FORCE ROW LEVEL SECURITY`.
+  - A garantia de `server-only` nos arquivos de banco e contexto é verificada pelo compilador estático do Next.js durante a fase de `next build`.
+- **Alternativa Descartada:** Expor a instância `prisma` globalmente e confiar que desenvolvedores incluirão `where: { organization_id }` manualmente em cada chamada.
