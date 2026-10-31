@@ -1,13 +1,13 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { Client } from 'pg';
-import crypto from 'crypto';
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { Client } from "pg";
+import crypto from "crypto";
 import {
   createAdminTestClient,
   createJurisflowAppClient,
   setSessionContext,
-} from '../test-client';
+} from "../test-client";
 
-describe('Operação Positiva do Papel jurisflow_app em Tabelas de Tenant', () => {
+describe("Operação Positiva do Papel jurisflow_app em Tabelas de Tenant", () => {
   let adminClient: Client;
   let appClient: Client;
 
@@ -40,7 +40,7 @@ describe('Operação Positiva do Papel jurisflow_app em Tabelas de Tenant', () =
     if (appClient) await appClient.end();
   });
 
-  it('deve permitir INSERT, SELECT e UPDATE de cliente pelo papel jurisflow_app com contexto ativo', async () => {
+  it("deve permitir INSERT, SELECT e UPDATE de cliente pelo papel jurisflow_app com contexto ativo", async () => {
     await setSessionContext(appClient, { orgId, userId });
 
     const clientId = crypto.randomUUID();
@@ -56,7 +56,7 @@ describe('Operação Positiva do Papel jurisflow_app em Tabelas de Tenant', () =
       SELECT id, name, document_number, is_active FROM public.clients WHERE id = '${clientId}';
     `);
     expect(selectRes.rows).toHaveLength(1);
-    expect(selectRes.rows[0].name).toBe('Doutor Silva');
+    expect(selectRes.rows[0].name).toBe("Doutor Silva");
     expect(selectRes.rows[0].is_active).toBe(true);
 
     // 3. UPDATE
@@ -69,11 +69,11 @@ describe('Operação Positiva do Papel jurisflow_app em Tabelas de Tenant', () =
     const updateRes = await appClient.query(`
       SELECT name, is_active FROM public.clients WHERE id = '${clientId}';
     `);
-    expect(updateRes.rows[0].name).toBe('Doutor Silva Atualizado');
+    expect(updateRes.rows[0].name).toBe("Doutor Silva Atualizado");
     expect(updateRes.rows[0].is_active).toBe(false);
   });
 
-  it('deve permitir INSERT e SELECT de tarefas e comentários', async () => {
+  it("deve permitir INSERT e SELECT de tarefas e comentários", async () => {
     await setSessionContext(appClient, { orgId, userId });
 
     const taskId = crypto.randomUUID();
@@ -99,11 +99,11 @@ describe('Operação Positiva do Papel jurisflow_app em Tabelas de Tenant', () =
     `);
 
     expect(res.rows).toHaveLength(1);
-    expect(res.rows[0].title).toBe('Petição Inicial');
-    expect(res.rows[0].content).toBe('Documentos recebidos do cliente.');
+    expect(res.rows[0].title).toBe("Petição Inicial");
+    expect(res.rows[0].content).toBe("Documentos recebidos do cliente.");
   });
 
-  it('deve permitir INSERT de log de auditoria, mas bloquear sua alteração', async () => {
+  it("deve permitir INSERT de log de auditoria, mas bloquear sua alteração", async () => {
     await setSessionContext(appClient, { orgId, userId });
 
     const logId = crypto.randomUUID();
@@ -114,13 +114,17 @@ describe('Operação Positiva do Papel jurisflow_app em Tabelas de Tenant', () =
       VALUES ('${logId}', '${orgId}', '${userId}', 'create', 'client', '${crypto.randomUUID()}');
     `);
 
-    const res = await appClient.query(`SELECT action, entity FROM public.audit_logs WHERE id = '${logId}';`);
+    const res = await appClient.query(
+      `SELECT action, entity FROM public.audit_logs WHERE id = '${logId}';`,
+    );
     expect(res.rows).toHaveLength(1);
-    expect(res.rows[0].action).toBe('create');
+    expect(res.rows[0].action).toBe("create");
 
     // Tentativa de alterar o log gravado é bloqueada no nível de privilégio do banco
     await expect(
-      appClient.query(`UPDATE public.audit_logs SET action = 'tampered' WHERE id = '${logId}';`)
+      appClient.query(
+        `UPDATE public.audit_logs SET action = 'tampered' WHERE id = '${logId}';`,
+      ),
     ).rejects.toThrow(/(permission denied|permissão negada)/i);
   });
 });

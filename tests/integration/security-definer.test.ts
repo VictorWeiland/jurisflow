@@ -1,13 +1,13 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { Client } from 'pg';
-import crypto from 'crypto';
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { Client } from "pg";
+import crypto from "crypto";
 import {
   createAdminTestClient,
   createJurisflowAppClient,
   setSessionContext,
-} from '../test-client';
+} from "../test-client";
 
-describe('Funções SECURITY DEFINER com FORCE ROW LEVEL SECURITY Ativo', () => {
+describe("Funções SECURITY DEFINER com FORCE ROW LEVEL SECURITY Ativo", () => {
   let adminClient: Client;
   let appClient: Client;
 
@@ -45,9 +45,11 @@ describe('Funções SECURITY DEFINER com FORCE ROW LEVEL SECURITY Ativo', () => 
 
     // 3. Cria um convite válido para o invitedUser
     const rawToken = `secret_token_${runId}`;
-    validTokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    validTokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
 
-    const lawyerRoleRes = await adminClient.query("SELECT id FROM public.roles WHERE name = 'lawyer'");
+    const lawyerRoleRes = await adminClient.query(
+      "SELECT id FROM public.roles WHERE name = 'lawyer'",
+    );
     const lawyerRoleId = lawyerRoleRes.rows[0].id;
 
     await adminClient.query(`
@@ -65,8 +67,8 @@ describe('Funções SECURITY DEFINER com FORCE ROW LEVEL SECURITY Ativo', () => 
     if (appClient) await appClient.end();
   });
 
-  describe('create_organization_with_owner', () => {
-    it('deve criar a organização e vincular o usuário como owner mesmo com FORCE RLS ativo', async () => {
+  describe("create_organization_with_owner", () => {
+    it("deve criar a organização e vincular o usuário como owner mesmo com FORCE RLS ativo", async () => {
       const newUserId = crypto.randomUUID();
       const newEmail = `novo_owner_${runId}@triforce.test`;
       const newSlug = `novo-escritorio-${runId}`;
@@ -91,34 +93,42 @@ describe('Funções SECURITY DEFINER com FORCE ROW LEVEL SECURITY Ativo', () => 
         WHERE om.organization_id = '${newOrgId}' AND om.user_id = '${newUserId}';
       `);
       expect(memberRes.rows).toHaveLength(1);
-      expect(memberRes.rows[0].role_name).toBe('owner');
+      expect(memberRes.rows[0].role_name).toBe("owner");
     });
 
-    it('deve falhar se app.current_user_id estiver vazio', async () => {
-      await appClient.query("SELECT set_config('app.current_user_id', '', false);");
+    it("deve falhar se app.current_user_id estiver vazio", async () => {
+      await appClient.query(
+        "SELECT set_config('app.current_user_id', '', false);",
+      );
       await expect(
-        appClient.query(`SELECT public.create_organization_with_owner('Erro Org', 'erro-org-${runId}');`)
+        appClient.query(
+          `SELECT public.create_organization_with_owner('Erro Org', 'erro-org-${runId}');`,
+        ),
       ).rejects.toThrow(/Não autenticado/i);
     });
   });
 
-  describe('accept_invitation', () => {
-    it('deve falhar se o usuário não tiver e-mail confirmado em auth.users', async () => {
+  describe("accept_invitation", () => {
+    it("deve falhar se o usuário não tiver e-mail confirmado em auth.users", async () => {
       await setSessionContext(appClient, { userId: unconfirmedUserId });
       await expect(
-        appClient.query(`SELECT public.accept_invitation('${validTokenHash}');`)
+        appClient.query(
+          `SELECT public.accept_invitation('${validTokenHash}');`,
+        ),
       ).rejects.toThrow(/e-mail verificado em auth.users/i);
     });
 
-    it('deve falhar se o convite pertencer a outro e-mail', async () => {
+    it("deve falhar se o convite pertencer a outro e-mail", async () => {
       // O usuário owner tenta aceitar o convite emitido para o advogado convidado
       await setSessionContext(appClient, { userId: ownerUserId });
       await expect(
-        appClient.query(`SELECT public.accept_invitation('${validTokenHash}');`)
+        appClient.query(
+          `SELECT public.accept_invitation('${validTokenHash}');`,
+        ),
       ).rejects.toThrow(/convite pertence a outro e-mail/i);
     });
 
-    it('deve aceitar o convite com sucesso para o usuário correto e marcá-lo como aceito', async () => {
+    it("deve aceitar o convite com sucesso para o usuário correto e marcá-lo como aceito", async () => {
       await setSessionContext(appClient, { userId: invitedUserId });
       const res = await appClient.query(`
         SELECT public.accept_invitation('${validTokenHash}') as result;
@@ -137,7 +147,7 @@ describe('Funções SECURITY DEFINER com FORCE ROW LEVEL SECURITY Ativo', () => 
       `);
       expect(memberRes.rows).toHaveLength(1);
       expect(memberRes.rows[0].is_active).toBe(true);
-      expect(memberRes.rows[0].role_name).toBe('lawyer');
+      expect(memberRes.rows[0].role_name).toBe("lawyer");
 
       // Confere se o convite foi marcado como accepted_at IS NOT NULL
       const invRes = await adminClient.query(`
@@ -146,10 +156,12 @@ describe('Funções SECURITY DEFINER com FORCE ROW LEVEL SECURITY Ativo', () => 
       expect(invRes.rows[0].accepted_at).not.toBeNull();
     });
 
-    it('deve falhar ao tentar reutilizar o convite já aceito (garantia de uso único)', async () => {
+    it("deve falhar ao tentar reutilizar o convite já aceito (garantia de uso único)", async () => {
       await setSessionContext(appClient, { userId: invitedUserId });
       await expect(
-        appClient.query(`SELECT public.accept_invitation('${validTokenHash}');`)
+        appClient.query(
+          `SELECT public.accept_invitation('${validTokenHash}');`,
+        ),
       ).rejects.toThrow(/Convite inválido ou expirado/i);
     });
   });

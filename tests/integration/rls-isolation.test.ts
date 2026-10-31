@@ -1,13 +1,13 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { Client } from 'pg';
-import crypto from 'crypto';
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { Client } from "pg";
+import crypto from "crypto";
 import {
   createJurisflowAppClient,
   createAdminTestClient,
   setSessionContext,
-} from '../test-client';
+} from "../test-client";
 
-describe('Isolamento Multi-Tenant por Row Level Security (RLS)', () => {
+describe("Isolamento Multi-Tenant por Row Level Security (RLS)", () => {
   let appClient: Client;
   let adminClient: Client;
 
@@ -67,39 +67,41 @@ describe('Isolamento Multi-Tenant por Row Level Security (RLS)', () => {
     if (adminClient) await adminClient.end();
   });
 
-  it('deve retornar apenas registros da Org A quando o contexto for da Org A (sem filtro WHERE na aplicação)', async () => {
+  it("deve retornar apenas registros da Org A quando o contexto for da Org A (sem filtro WHERE na aplicação)", async () => {
     // Define contexto da Org A
     await setSessionContext(appClient, { orgId: actualOrgA, userId: userAId });
 
     // Consulta direta sem cláusula WHERE organization_id
-    const result = await appClient.query('SELECT * FROM public.clients;');
+    const result = await appClient.query("SELECT * FROM public.clients;");
 
     expect(result.rows.length).toBe(1);
-    expect(result.rows[0].name).toBe('Cliente Exclusivo Org A');
+    expect(result.rows[0].name).toBe("Cliente Exclusivo Org A");
     expect(result.rows[0].organization_id).toBe(actualOrgA);
   });
 
-  it('deve retornar apenas registros da Org B quando o contexto for da Org B (sem filtro WHERE na aplicação)', async () => {
+  it("deve retornar apenas registros da Org B quando o contexto for da Org B (sem filtro WHERE na aplicação)", async () => {
     // Define contexto da Org B
     await setSessionContext(appClient, { orgId: actualOrgB, userId: userBId });
 
     // Consulta direta sem cláusula WHERE organization_id
-    const result = await appClient.query('SELECT * FROM public.clients;');
+    const result = await appClient.query("SELECT * FROM public.clients;");
 
     expect(result.rows.length).toBe(1);
-    expect(result.rows[0].name).toBe('Cliente Exclusivo Org B');
+    expect(result.rows[0].name).toBe("Cliente Exclusivo Org B");
     expect(result.rows[0].organization_id).toBe(actualOrgB);
   });
 
-  it('deve retornar zero linhas se app.current_org_id estiver ausente ou vazio', async () => {
+  it("deve retornar zero linhas se app.current_org_id estiver ausente ou vazio", async () => {
     // Limpa o contexto de organização no escopo da sessão
-    await appClient.query("SELECT set_config('app.current_org_id', '', false);");
+    await appClient.query(
+      "SELECT set_config('app.current_org_id', '', false);",
+    );
 
-    const result = await appClient.query('SELECT * FROM public.clients;');
+    const result = await appClient.query("SELECT * FROM public.clients;");
     expect(result.rows.length).toBe(0);
   });
 
-  it('deve impedir que a Org A leia ou altere dados da Org B mesmo forçando o ID da Org B no INSERT', async () => {
+  it("deve impedir que a Org A leia ou altere dados da Org B mesmo forçando o ID da Org B no INSERT", async () => {
     // Contexto é Org A, mas tenta inserir com organization_id da Org B
     await setSessionContext(appClient, { orgId: actualOrgA, userId: userAId });
 
@@ -108,7 +110,9 @@ describe('Isolamento Multi-Tenant por Row Level Security (RLS)', () => {
       appClient.query(`
         INSERT INTO public.clients (id, organization_id, name, document_number, updated_at)
         VALUES (gen_random_uuid(), '${actualOrgB}', 'Invasor Tentando Gravar na Org B', '11122233344', now());
-      `)
-    ).rejects.toThrow(/(violates row-level security policy|viola a política de segurança no nível de linha)/i);
+      `),
+    ).rejects.toThrow(
+      /(violates row-level security policy|viola a política de segurança no nível de linha)/i,
+    );
   });
 });

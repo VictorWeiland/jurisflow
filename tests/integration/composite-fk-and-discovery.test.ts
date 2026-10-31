@@ -1,13 +1,13 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { Client } from 'pg';
-import crypto from 'crypto';
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { Client } from "pg";
+import crypto from "crypto";
 import {
   createAdminTestClient,
   createJurisflowAppClient,
   setSessionContext,
-} from '../test-client';
+} from "../test-client";
 
-describe('Integridade Composta (FK Anti-Vazamento) e Descoberta de Organizações', () => {
+describe("Integridade Composta (FK Anti-Vazamento) e Descoberta de Organizações", () => {
   let adminClient: Client;
   let appClient: Client;
 
@@ -67,8 +67,8 @@ describe('Integridade Composta (FK Anti-Vazamento) e Descoberta de Organizaçõe
     if (appClient) await appClient.end();
   });
 
-  describe('1. Integridade Referencial Composta (FK Multi-Tenant)', () => {
-    it('deve rejeitar cadastro de processo na Org A apontando para cliente da Org B via chave estrangeira composta', async () => {
+  describe("1. Integridade Referencial Composta (FK Multi-Tenant)", () => {
+    it("deve rejeitar cadastro de processo na Org A apontando para cliente da Org B via chave estrangeira composta", async () => {
       // Define contexto da Org A
       await setSessionContext(appClient, { orgId: orgAId, userId: userAId });
 
@@ -83,11 +83,13 @@ describe('Integridade Composta (FK Anti-Vazamento) e Descoberta de Organizaçõe
           ) VALUES (
             '${caseId}', '${orgAId}', '${clientBId}', 'Processo Cruzado Ilegal', 'civel', now()
           );
-        `)
-      ).rejects.toThrow(/(violates foreign key constraint|viola restrição de chave estrangeira)/i);
+        `),
+      ).rejects.toThrow(
+        /(violates foreign key constraint|viola restrição de chave estrangeira)/i,
+      );
     });
 
-    it('deve permitir cadastro de processo na Org A apontando para cliente legítimo da Org A', async () => {
+    it("deve permitir cadastro de processo na Org A apontando para cliente legítimo da Org A", async () => {
       await setSessionContext(appClient, { orgId: orgAId, userId: userAId });
 
       const caseId = crypto.randomUUID();
@@ -108,10 +110,12 @@ describe('Integridade Composta (FK Anti-Vazamento) e Descoberta de Organizaçõe
     });
   });
 
-  describe('2. Descoberta e Listagem de Organizações Antes de app.current_org_id Existir', () => {
-    it('deve permitir ao Usuário A listar apenas suas organizações ativas quando app.current_org_id estiver vazio', async () => {
+  describe("2. Descoberta e Listagem de Organizações Antes de app.current_org_id Existir", () => {
+    it("deve permitir ao Usuário A listar apenas suas organizações ativas quando app.current_org_id estiver vazio", async () => {
       // Define APENAS app.current_user_id (app.current_org_id permanece vazio)
-      await appClient.query("SELECT set_config('app.current_org_id', '', false);");
+      await appClient.query(
+        "SELECT set_config('app.current_org_id', '', false);",
+      );
       await setSessionContext(appClient, { userId: userAId });
 
       // Consulta organizations (ativa a política org_member_list_policy)
@@ -122,16 +126,20 @@ describe('Integridade Composta (FK Anti-Vazamento) e Descoberta de Organizaçõe
       // O Usuário A deve ver apenas a Org A
       expect(res.rows.length).toBe(1);
       expect(res.rows[0].id).toBe(orgAId);
-      expect(res.rows[0].name).toBe('Escritório Alpha FK');
+      expect(res.rows[0].name).toBe("Escritório Alpha FK");
 
       // Comprova que a Org B é totalmente invisível
-      const orgBInResults = res.rows.some((r: { id: string }) => r.id === orgBId);
+      const orgBInResults = res.rows.some(
+        (r: { id: string }) => r.id === orgBId,
+      );
       expect(orgBInResults).toBe(false);
     });
 
-    it('deve permitir ao Usuário B listar apenas suas organizações ativas quando app.current_org_id estiver vazio', async () => {
+    it("deve permitir ao Usuário B listar apenas suas organizações ativas quando app.current_org_id estiver vazio", async () => {
       // Define APENAS app.current_user_id do Usuário B
-      await appClient.query("SELECT set_config('app.current_org_id', '', false);");
+      await appClient.query(
+        "SELECT set_config('app.current_org_id', '', false);",
+      );
       await setSessionContext(appClient, { userId: userBId });
 
       const res = await appClient.query(`
@@ -140,9 +148,11 @@ describe('Integridade Composta (FK Anti-Vazamento) e Descoberta de Organizaçõe
 
       expect(res.rows.length).toBe(1);
       expect(res.rows[0].id).toBe(orgBId);
-      expect(res.rows[0].name).toBe('Escritório Beta FK');
+      expect(res.rows[0].name).toBe("Escritório Beta FK");
 
-      const orgAInResults = res.rows.some((r: { id: string }) => r.id === orgAId);
+      const orgAInResults = res.rows.some(
+        (r: { id: string }) => r.id === orgAId,
+      );
       expect(orgAInResults).toBe(false);
     });
   });
