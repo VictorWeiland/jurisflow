@@ -68,3 +68,26 @@
   3. Inicialização e validação antecipada incondicional em `src/instrumentation.ts` no hook `register()` via acesso ao proxy `env`, garantindo que a aplicação recuse iniciar (_fail-fast_) caso as variáveis obrigatórias estejam ausentes ou mal formatadas.
 - **Motivo:** Prevenção proativa contra vazamento de segredos em Client Components e detecção imediata de erros de configuração no boot do servidor.
 - **Alternativa Descartada:** Validação tardia sob demanda (postergaria a descoberta de erros para a primeira requisição do usuário).
+
+---
+
+### DEC-007: Resolução em Duas Camadas de Contexto de Tenant e Roteiro de Validação de Sessão
+
+- **Status:** Aprovado e Implementado
+- **Contexto:** Plataforma jurídica multi-tenant onde requisições com manipulação de cookies ou injeção de headers customizados (`x-organization-id`, `x-user-id`) poderiam tentar burlar o isolamento de escritório ou forjar sessões.
+- **Decisão:**
+  1. **Separação Arquitetural Estrita em Duas Camadas:**
+     - **Camada (i) - `resolveSession()`:** Lê exclusivamente os cookies da requisição HTTP via `@supabase/ssr` e invoca `supabase.auth.getUser()`. Rejeita qualquer requisição sem sessão válida ou expirada com `AuthRequiredError` (401). Nenhuma rota externa ou cliente pode injetar `userId`.
+     - **Camada (ii) - `resolveOrgContext(prisma, userId, cookieOrgId)`:** Função estritamente interna ao módulo de autenticação. Lê o tenant exclusivamente do cookie `jurisflow_org_id`. Headers customizados (`x-organization-id`, `x-user-id`) são sumariamente ignorados pelo código.
+     - **Ponto Canônico Fechado - `requireOrgContext(prisma)`:** Compõe as duas camadas em sequência. A aplicação jamais expõe o parâmetro `userId` externamente.
+  2. **Isolamento de Tenant em Banco de Dados (`withOrgContext`):**
+     - O contexto validado aplica as variáveis de sessão `app.current_user_id` e `app.current_org_id` através de `set_config(..., true)` com escopo estritamente local à transação Prisma, garantindo que conexões reaproveitadas do pool não vazem estado entre requisições.
+  3. **Zero Emuladores ou Fakes de Autenticação:**
+     - Não são criados servidores falsos de GoTrue, emuladores de JWT ou interceptores de rede na suíte de testes. A Camada (ii) é testada de ponta a ponta contra o PostgreSQL de testes (`jurisflow_test`) conectado como `jurisflow_app` (com `FORCE ROW LEVEL SECURITY`).
+- **Limitação Registrada:**
+  - Os testes de integração locais automatizados cobrem com profundidade total as regras de negócio multi-tenant e o isolamento RLS do PostgreSQL (Cenários a, c, e).
+  - A validação da Camada (i) de emissão/expiração de JWT e criptografia de cookies do Supabase Auth depende do serviço GoTrue e é verificada via roteiro de validação manual no Supabase Cloud:
+    - **Roteiro Manual Cloud (Cenário b):** Requisição sem cookie `sb-*-auth-token` -> Confirmação de 401 Unauthorized via `resolveSession()`.
+    - **Roteiro Manual Cloud (Cenário d1):** Requisição com cookie contendo JWT com `exp` expirado -> Confirmação de 401 Unauthorized do GoTrue.
+    - **Roteiro Manual Cloud (Cenário d2):** Requisição com cookie contendo JWT adulterado (assinatura inválida) -> Confirmação de 401 Unauthorized por falha de integridade.
+- **Alternativa Descartada:** Servidor mock de GoTrue local ou interceptores de `getUser()` (criaria fragilidade e falsa sensação de segurança divergente da nuvem).
